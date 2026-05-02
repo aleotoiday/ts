@@ -29,15 +29,7 @@ async function pushHistory(uid, entry) {
   await push(ref(db, `bot_users/${uid}/username_history`), entry);
 }
 
-function getRole(status) {
-  const map = {
-    creator: 'owner', administrator: 'admin', member: 'member',
-    restricted: 'restricted', left: 'left', kicked: 'banned',
-  };
-  return map[status] || status;
-}
-
-function formatUser(user, status = null) {
+function formatUser(user) {
   const username = user.username ? `@${user.username}` : 'không có';
   const link = user.username
     ? `<a href="https://t.me/${user.username}">link</a>`
@@ -49,16 +41,8 @@ function formatUser(user, status = null) {
   if (user.last_name) text += `\nLast Name: ${user.last_name}`;
   text += `\nUsername: ${username}\n`;
   text += `User link: ${link}`;
-  if (status) text += `\nStatus: ${getRole(status)}`;
 
   return text;
-}
-
-async function getMemberStatus(chatId, userId) {
-  try {
-    const member = await bot.getChatMember(chatId, userId);
-    return member.status;
-  } catch { return null; }
 }
 
 async function trackUser(msg) {
@@ -101,15 +85,17 @@ async function trackUser(msg) {
 }
 
 bot.on('message', async (msg) => {
+  const chatType = msg.chat.type;
+  if (chatType !== 'group' && chatType !== 'supergroup') return;
+
   await trackUser(msg);
   if (!msg.text) return;
 
   if (msg.text.startsWith('/info')) {
-    let targetUser = null, status = null;
+    let targetUser = null;
 
     if (msg.reply_to_message) {
       targetUser = msg.reply_to_message.from;
-      status = await getMemberStatus(msg.chat.id, targetUser.id);
     } else {
       const arg = msg.text.split(' ')[1];
       if (arg) {
@@ -121,25 +107,34 @@ bot.on('message', async (msg) => {
           );
           if (found) {
             targetUser = found;
-            status = await getMemberStatus(msg.chat.id, found.id);
           } else {
             return bot.sendMessage(msg.chat.id, 'Không tìm thấy user. User cần nhắn tin trong nhóm trước.');
           }
         }
       } else {
         targetUser = msg.from;
-        status = await getMemberStatus(msg.chat.id, msg.from.id);
       }
     }
 
     if (!targetUser) return;
-    bot.sendMessage(msg.chat.id, formatUser(targetUser, status), {
+    bot.sendMessage(msg.chat.id, formatUser(targetUser), {
+      parse_mode: 'HTML', reply_to_message_id: msg.message_id,
+    });
+  }
+
+  if (msg.text.startsWith('/id')) {
+    const chatId = msg.chat.id;
+    const chatTitle = msg.chat.title || 'không có tên';
+    bot.sendMessage(msg.chat.id, `Group info:\nName: ${chatTitle}\nID: <code>${chatId}</code>`, {
       parse_mode: 'HTML', reply_to_message_id: msg.message_id,
     });
   }
 });
 
 bot.on('new_chat_members', async (msg) => {
+  const chatType = msg.chat.type;
+  if (chatType !== 'group' && chatType !== 'supergroup') return;
+
   for (const user of msg.new_chat_members) {
     if (!user.is_bot) await trackUser({ ...msg, from: user });
   }
