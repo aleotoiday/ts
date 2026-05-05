@@ -1,6 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const { initializeApp } = require('firebase/app');
 const { getDatabase, ref, get, set, push } = require('firebase/database');
+const http = require('http');
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
@@ -35,7 +36,7 @@ function formatUser(user) {
     ? `<a href="https://t.me/${user.username}">link</a>`
     : `<a href="tg://user?id=${user.id}">link</a>`;
 
-  let text = `User info:\n`;
+  let text = `<b>User info:</b>\n`;
   text += `ID: <code>${user.id}</code>\n`;
   text += `First Name: ${user.first_name || ''}`;
   if (user.last_name) text += `\nLast Name: ${user.last_name}`;
@@ -86,18 +87,25 @@ async function trackUser(msg) {
 
 bot.on('message', async (msg) => {
   const chatType = msg.chat.type;
+  if (chatType === 'private') {
+    return bot.sendMessage(msg.chat.id, 'Bot chỉ hoạt động trên nhóm.');
+  }
   if (chatType !== 'group' && chatType !== 'supergroup') return;
 
-  await trackUser(msg);
+  try { await trackUser(msg); } catch {}
+
   if (!msg.text) return;
 
-  if (msg.text.startsWith('/info')) {
+  const text = msg.text.split('@')[0].trim();
+
+  // /info
+  if (text.startsWith('/info')) {
     let targetUser = null;
 
     if (msg.reply_to_message) {
       targetUser = msg.reply_to_message.from;
     } else {
-      const arg = msg.text.split(' ')[1];
+      const arg = text.split(' ')[1];
       if (arg) {
         const username = arg.replace('@', '').toLowerCase();
         const snap = await get(ref(db, 'bot_users'));
@@ -122,10 +130,11 @@ bot.on('message', async (msg) => {
     });
   }
 
-  if (msg.text.startsWith('/id')) {
+  // /id
+  if (text.startsWith('/id')) {
     const chatId = msg.chat.id;
     const chatTitle = msg.chat.title || 'không có tên';
-    bot.sendMessage(msg.chat.id, `Group info:\nName: ${chatTitle}\nID: <code>${chatId}</code>`, {
+    bot.sendMessage(msg.chat.id, `<b>Group info:</b>\nName: ${chatTitle}\nID: <code>${chatId}</code>`, {
       parse_mode: 'HTML', reply_to_message_id: msg.message_id,
     });
   }
@@ -137,6 +146,21 @@ bot.on('new_chat_members', async (msg) => {
 
   for (const user of msg.new_chat_members) {
     if (!user.is_bot) await trackUser({ ...msg, from: user });
+  }
+});
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Bot is running!');
+});
+
+server.listen(3000, () => {
+  console.log('Web server ready for ping on port 3000');
+});
+
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    console.log('Port 3000 busy, skipping keep-alive server.');
   }
 });
 
